@@ -13,7 +13,7 @@ from google.adk.tools.tool_context import ToolContext
 import google.auth
 
 # BigQuery Configuration
-PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "your-project-id")
+PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "shiju-sandbox")
 DATASET_ID = "cookie_delivery"
 ORDERS_TABLE = "orders"
 

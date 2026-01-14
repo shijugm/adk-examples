@@ -1,0 +1,116 @@
+sources:
+  dnm-graph:
+    kind: "neo4j"
+    uri: "neo4j://localhost:7687"
+    user: "shiju"
+    password: "12345678"
+    database: "conversation"
+
+tools:
+  facilities:
+    kind: neo4j-cypher
+    source: dnm-graph
+    description: "Returns a list of facility names. If no limit is provided, it returns all facilities."
+    parameters:
+      - name: limit_count
+        type: integer
+        required: false 
+        description: "Optional: The number of facilities to return."
+    statement: |
+      MATCH (f:Facility) 
+      RETURN f.facilityName  as facility
+      LIMIT coalesce($limit_count, 999999)
+
+  get_articles_by_status:
+      kind: neo4j-cypher
+      source: dnm-graph
+      description: "Fetches articles filtered by their current status. Mapping: 'D' for Delivered, 'T' for In Transit, and 'F' for At Facility. It returns the article details with the journey time"
+      parameters:
+        - name: statusCode
+          type: string
+          description: "The 1-char status code to filter by (D, T, or F)."
+          required: true
+          allowedValues: ["D", "T", "F"]  # Strictly limits the model's choices
+      statement: |
+        MATCH (a:Article)-[:HAS_JOURNEY]->(:Journey {articleStatus:$statusCode})
+        return a.articleId as articleId , a.articleName as name ,j.journeyTime as journeyTimeInMinutes
+
+  get_articles_dwelling_at_facility:
+      kind: neo4j-cypher
+      source: dnm-graph
+      description: "Lists articles that are undelivered and dwelling at a facility "
+      parameters:
+        - name: facilityName
+          type: string
+          description: "The name of the facility to check."
+      statement: |
+        MATCH (a:Article)-[:HAS_JOURNEY]-(:Journey {articleStatus: 'F'})-[:LAST_FACILITY_VISIT]-(:ArticleVisit  {facilityId :  $facilityName})
+        RETURN a.articleId AS id, a.articleName AS name 
+
+  get_intransit_articles_to_facility:
+      kind: neo4j-cypher
+      source: dnm-graph
+      description: "Lists articles that are undelivered and in transit between 2 facilities. The facility to check is the destination of the article "
+      parameters:
+        - name: facilityName
+          type: string
+          description: "The name of the facility to check."
+      statement: |
+        MATCH (a:Article)-[:HAS_JOURNEY]-(:Journey {articleStatus: 'T'})-[:LAST_FACILITY_VISIT]-()-[:TRANSPORTED_BY]-(c:Container {toFacilityId :  $facilityName})
+        RETURN a.articleId AS id, a.articleName AS name 
+
+  check_network_congestion:
+    kind: neo4j-cypher
+    source: dnm-graph
+    description: "Identifies facilities with high congestion. Use this to find bottlenecks where too many articles are currently located."
+    parameters:
+      - name: threshold
+        type: integer
+        required: false
+        description: "The number of articles that constitutes congestion. Defaults to 5."
+        default: 5
+    statement: |
+      MATCH (a:Article)-[:HAS_JOURNEY]-(:Journey {articleStatus: 'F'})-[:LAST_FACILITY_VISIT]-(av:ArticleVisit  )
+      WITH av.facilityId as facility, count(a) AS articleCount
+      WHERE articleCount >= $threshold
+      RETURN 
+        facility, 
+        articleCount AS currentLoad,
+        CASE 
+          WHEN articleCount > ($threshold * 2) THEN 'CRITICAL'
+          WHEN articleCount > $threshold THEN 'HIGH'
+          ELSE 'NORMAL'
+        END AS congestionLevel
+      ORDER BY articleCount DESC
+
+  get_article_journey:
+      kind: neo4j-cypher
+      source: dnm-graph
+      description: "Retrieves the chronological sequence of facilities an article has visited. The result has the dwell time at each facility and the transit time between the 2 subsequent facilities"
+      parameters:
+        - name: articleId
+          type: string
+          required: true
+          description: "The unique ID of the article to track."
+      statement: |
+        MATCH (a:Article {articleId: $articleId})-[:HAS_JOURNEY]->(j:Journey)-[:INCLUDES_VISIT]-(av)
+        with av
+        OPTIONAL MATCH (av)-[r:NEXT_VISIT]->()
+        RETURN   av.facilityId as facilility, av.entryDate as EntryDate, av.dwellTime as DwellTime  , r.transitTime 
+        order by av.seq asc
+
+  get_longest_open_journeys:
+      kind: neo4j-cypher
+      source: dnm-graph
+      description: "Lists undelivered articles that have been open for the longest time, based on the journeyTime property."
+      parameters:
+        - name: limit_count
+          type: integer
+          required: false
+          default: 5
+          description: "Number of articles to return."
+      statement: |
+        MATCH (a:Article )-[:HAS_JOURNEY]->(j:Journey)
+        RETURN a.articleId as article_id , a.articleName as article_name, j.journeyTime AS duration 
+        ORDER BY j.journeyTime DESC
+        LIMIT $limit_count

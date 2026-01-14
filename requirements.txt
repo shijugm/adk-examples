@@ -1,2 +1,5 @@
 PyYAML==6.0
-google-adk
+google-adk==1.21.0
+toolbox-core==0.5.4
+fastmcp
+neo4j

@@ -9,5 +9,6 @@ USE_BIGQUERY=true
 
 Features
 1. BQ ADK Integration
-2. Cloud Logging 
-3. Passing values (agent state) between agents using prompts
+2. Read and write from BQ Table 
+3. Cloud Logging 
+4. Passing values (agent state) between agents using prompts
